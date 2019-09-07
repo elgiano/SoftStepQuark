@@ -140,6 +140,50 @@ SSToggleFunc : SSAbstractFunc {
 	}
 }
 
+
+// toggles between 0 and 1 if button is pressed for tm seconds. Default:1.2
+SSLongToggleFunc : SSAbstractFunc {
+	var rout;
+	var playing=false;
+	var <>tm=1.2;			// wait time till function call
+
+	makeRout {
+		playing = true;
+		this.changed(\blink, state);
+		rout = Routine({
+			tm.wait;
+			if (vals.sum >= thresh) {
+					state = 1 - state;
+					function.value(state);
+					this.changed(\state, state);
+			};
+
+		}).play(SystemClock);
+	}
+
+	initChild {
+		state = 1;
+		ccs[button].do {|i|
+			responders = responders.add(
+				MIDIFunc.cc({|val,num,chan,src|
+					var corn;
+					corn = ccs[button].indexOf(num);
+					vals[corn] = val;
+					if (playing.not) {
+						this.makeRout;
+					} {
+						if (vals.sum == 0) {
+							playing = false;
+							rout.stop;
+							this.changed(\state,state);
+						}
+					};
+				}, i, nil, SoftStep.in.uid);
+			)
+		};
+	}
+}
+
 // calls function if button is pressed for tm seconds. Default:1.2
 SSLongTrigFunc : SSAbstractFunc {
 	var rout;
@@ -180,6 +224,8 @@ SSLongTrigFunc : SSAbstractFunc {
 		};
 	}
 }
+
+
 
 SSDoubleTrigFunc : SSAbstractFunc {
 	var rout;
