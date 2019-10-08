@@ -114,6 +114,76 @@ SSTrigFunc : SSAbstractFunc {
 
 }
 
+SSComboTrigFunc : SSAbstractFunc {
+
+	var <>comboTimeout;
+	var <>comboPressed=false;
+
+	*new {|function, buttons, led=false|
+		buttons.do{|button|
+			if (button.isInteger.not or: {button > 13}) {"arg button must be an integer from 0 to 13".inform; ^nil};
+			if (SoftStep.initialized.not) {"Run SoftStep.initialize first.".inform; ^nil};
+		}
+
+		^super.newCopyArgs(function, buttons).init(led);
+	}
+
+	init {arg led;
+		vals = ();
+		state = ();
+		button.do{|btn|
+			vals[btn] = Array.fill(ccs[btn].size, {0});
+			state[btn] = 0;
+			if (led and: {btn < 10}) {
+				ledObj = SoftStepLed(btn);
+				this.addDependant(ledObj);
+			};
+			this.initChild(btn);
+		};
+		all.add(this);
+	}
+
+	initChild {|button|
+		ccs[button].do {|i|
+			responders = responders.add(
+				MIDIFunc.cc({|val,num,chan,src|
+					var corn = ccs[button].indexOf(num);
+					vals[button][corn] = val;
+					if (vals[button].sum == 0) {
+						state[button] = 0;
+						this.checkCombo(button);
+						//function.value(state);
+						//this.changed(\state, state);
+					} {
+						if (state[button] == 0 and:{vals[button].sum >= thresh}) {
+							state[button] = 1;
+							this.checkCombo(button);
+							//function.value(state);
+							//this.changed(\state, state);
+						};
+					};
+				}, i, nil, SoftStep.in.uid)
+			);
+		};
+	}
+
+	checkCombo{|btn|
+		// Call function if all states are 1
+		if(state.values.includes(0).not){
+			function.value(1);
+			comboPressed = true;
+			this.changed(\state,1);
+		}{
+			if(state.values.includes(1).not and: comboPressed){
+				function.value(0);
+				this.changed(\state,0);
+				comboPressed = false;
+			};
+		}
+	}
+
+}
+
 // toggles between 1 and 0 on each down event
 SSToggleFunc : SSAbstractFunc {
 	var pressed = 0;	// state var is needed for the toggle vals
@@ -217,6 +287,54 @@ SSLongTrigFunc : SSAbstractFunc {
 							rout.stop;
 							state = 0;
 							this.changed(\state, state);
+						}
+					};
+				}, i, nil, SoftStep.in.uid);
+			)
+		};
+	}
+}
+
+
+// calls function if button is pressed for tm seconds. Default:1.2
+// sends -1 when blinking, 0 when released after blinking, 1 when released before blinking, 2 when long pressed
+SSLongTrigOrTrigFunc : SSAbstractFunc {
+	var rout;
+	var playing=false;
+	var <>tm=1.2;			// wait time till function call
+
+	makeRout {
+		playing = true;
+		this.changed(\blink, state);
+		this.state= -1;
+		if(this.ledObj.isNil){
+			function.value(-1);
+		};
+		rout = Routine({
+			tm.wait;
+			state = 2;
+			function.value(state);
+			this.changed(\state, 1);
+		}).play(SystemClock);
+	}
+
+	initChild {
+		state = 1;
+		ccs[button].do {|i|
+			responders = responders.add(
+				MIDIFunc.cc({|val,num,chan,src|
+					var corn;
+					corn = ccs[button].indexOf(num);
+					vals[corn] = val;
+					if (playing.not) {
+						this.makeRout;
+					} {
+						if (vals.sum == 0) {
+							playing = false;
+							rout.stop;
+							function.value(if(state==2){0}{1});
+							state = 0;
+							this.changed(\state, 0);
 						}
 					};
 				}, i, nil, SoftStep.in.uid);
